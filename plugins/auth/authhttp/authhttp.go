@@ -75,7 +75,7 @@ func (a *authHTTP) CheckConnect(clientID, username, password string) bool {
 
 	req, err := http.NewRequest("POST", config.AuthURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Error("new request super: ", zap.Error(err))
+		log.Error("new request conn: ", zap.Error(err))
 		return false
 	}
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
@@ -83,7 +83,7 @@ func (a *authHTTP) CheckConnect(clientID, username, password string) bool {
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Error("request super: ", zap.Error(err))
+		log.Error("request conn: ", zap.Error(err))
 		return false
 	}
 
