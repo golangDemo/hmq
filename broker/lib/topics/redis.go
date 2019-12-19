@@ -1,74 +1,116 @@
 package topics
 
 import (
-	"fmt"
-
 	"github.com/eclipse/paho.mqtt.golang/packets"
+	"github.com/fhmq/hmq/logger"
+	"go.uber.org/zap"
+	"time"
+	"unsafe"
+
 	"github.com/go-redis/redis/v7"
 )
 
-type redisTopics struct {
+var (
+	client *redis.Client
+	log    = logger.Get().Named("topics")
+)
+
+func init() {
+	Register("redis", NewMemProvider())
+	InitRedis()
 }
 
-func (rt *redisTopics) Subscribe(topic []byte, qos byte, subscriber interface{}) (byte, error) {
-	return []byte{}, nil
-}
-func (rt *redisTopics) Unsubscribe(topic []byte, subscriber interface{}) error {
-	return nil
-}
-func (rt *redisTopics) Subscribers(topic []byte, qos byte, subs *[]interface{}, qoss *[]byte) error {
-	return nil
-}
-func (rt *redisTopics) Retain(msg *packets.PublishPacket) error {
-	return nil
-}
-func (rt *redisTopics) Retained(topic []byte, msgs *[]*packets.PublishPacket) error {
-	return nil
-}
-func (rt *redisTopics) Close() error {
-	return nil
-}
-
-func ExampleNewClient() {
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+func InitRedis() {
+	client = redis.NewClient(&redis.Options{
+		Addr:     "192.168.18.136:6379",
 		Password: "123456", // no password set
 		DB:       0,        // use default DB
 
 	})
 
 	pong, err := client.Ping().Result()
-	fmt.Println(pong, err)
-	// Output: PONG <nil>
-
+	log.Debug("init redis client:", zap.String("pong", pong), zap.Error(err))
 }
 
-func ExampleClient() {
-	err := client.Set("key", "value", 0).Err()
-	if err != nil {
-		panic(err)
+type redisTopics struct {
+}
 
+func (rt *redisTopics) Subscribe(topic []byte, qos byte, subscriber interface{}) (byte, error) {
+	if qos > QosExactlyOnce {
+		qos = QosExactlyOnce
 	}
-
-	val, err := client.Get("key").Result()
-	if err != nil {
-		panic(err)
-
+	topicKey := byteRedisKey{key: topic}
+	return qos, client.SAdd(topicKey.TopicKey(), subscriber).Err()
+}
+func (rt *redisTopics) Unsubscribe(topic []byte, subscriber interface{}) error {
+	topicKey := byteRedisKey{key: topic}
+	return client.SRem(topicKey.TopicKey(), subscriber).Err()
+}
+func (rt *redisTopics) Subscribers(topic []byte, qos byte, subs *[]interface{}, qoss *[]byte) error {
+	topicKey := byteRedisKey{key: topic}
+	results, ok := client.SMembers(topicKey.TopicKey()).Result()
+	for _, sub := range results {
+		*subs = append(*subs, sub)
 	}
-	fmt.Println("key", val)
+	return ok
+}
 
-	val2, err := client.Get("key2").Result()
-	if err == redis.Nil {
-		fmt.Println("key2 does not exist")
+type redisKey interface {
+	TopicKey(prefix string, key interface{}) string
+	RetainKey(prefix string, key interface{}) string
+}
 
-	} else if err != nil {
-		panic(err)
+type stringRedisKey struct {
+	key string
+}
 
-	} else {
-		fmt.Println("key2", val2)
+func (sr *stringRedisKey) TopicKey() string {
+	return keyString("topics:", sr.key)
+}
+func (sr *stringRedisKey) RetainKey() string {
+	return keyString("retain:", sr.key)
+}
 
+func keyString(prefix string, key string) string {
+	return prefix + key
+}
+
+type byteRedisKey struct {
+	key []byte
+}
+
+func (sr *byteRedisKey) TopicKey() string {
+	return keyByte("topics:", sr.key)
+}
+func (sr *byteRedisKey) RetainKey() string {
+	return keyByte("retain:", sr.key)
+}
+
+func keyByte(prefix string, key []byte) string {
+	return prefix + *(*string)(unsafe.Pointer(&key))
+}
+
+func (rt *redisTopics) Retain(msg *packets.PublishPacket) error {
+	topicKey := stringRedisKey{key: msg.TopicName}
+	retainTopic := topicKey.RetainKey()
+	log.Debug("retain key", zap.String("key", retainTopic))
+	// TODO change msg.String to json data
+	return client.Set(retainTopic, msg.String(), 100*time.Second).Err()
+}
+func (rt *redisTopics) Retained(topic []byte, msgs *[]*packets.PublishPacket) error {
+	topicKey := byteRedisKey{key: topic}
+	retainTopic := topicKey.RetainKey()
+	log.Debug("retain key", zap.String("key", retainTopic))
+	msgVal, err := client.Get(retainTopic).Result()
+	if err != nil && err != redis.Nil {
+		return err
 	}
-	// Output: key value
-	// key2 does not exist
-
+	// TODO convert msg Val to publish.Packet
+	log.Debug("get retained msg", zap.String("msgVal", msgVal))
+	pubMsg := packets.PublishPacket{TopicName: string(topic)}
+	*msgs = append(*msgs, &pubMsg)
+	return nil
+}
+func (rt *redisTopics) Close() error {
+	return nil
 }
