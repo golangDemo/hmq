@@ -1,9 +1,11 @@
 package topics
 
 import (
+	"errors"
 	"github.com/eclipse/paho.mqtt.golang/packets"
 	"github.com/fhmq/hmq/logger"
 	"go.uber.org/zap"
+	"reflect"
 	"time"
 	"unsafe"
 
@@ -39,67 +41,65 @@ func (rt *redisTopics) Subscribe(topic []byte, qos byte, subscriber interface{})
 	if qos > QosExactlyOnce {
 		qos = QosExactlyOnce
 	}
-	topicKey := byteRedisKey{key: topic}
-	return qos, client.SAdd(topicKey.TopicKey(), subscriber).Err()
+	topicKey, err := TopicKey(topic)
+	if err != nil {
+		return qos, err
+	}
+	return qos, client.SAdd(topicKey, subscriber).Err()
 }
 func (rt *redisTopics) Unsubscribe(topic []byte, subscriber interface{}) error {
-	topicKey := byteRedisKey{key: topic}
-	return client.SRem(topicKey.TopicKey(), subscriber).Err()
+	topicKey, err := TopicKey(topic)
+	if err != nil {
+		return err
+	}
+	return client.SRem(topicKey, subscriber).Err()
 }
 func (rt *redisTopics) Subscribers(topic []byte, qos byte, subs *[]interface{}, qoss *[]byte) error {
-	topicKey := byteRedisKey{key: topic}
-	results, ok := client.SMembers(topicKey.TopicKey()).Result()
+	topicKey, err := TopicKey(topic)
+	if err != nil {
+		return err
+	}
+	results, ok := client.SMembers(topicKey).Result()
 	for _, sub := range results {
 		*subs = append(*subs, sub)
 	}
 	return ok
 }
 
-type redisKey interface {
-	TopicKey(prefix string, key interface{}) string
-	RetainKey(prefix string, key interface{}) string
+func TopicKey(topic interface{}) (string, error) {
+	return appendString("topics:", topic)
+}
+func RetainKey(topic interface{}) (string, error) {
+	return appendString("retain:", topic)
 }
 
-type stringRedisKey struct {
-	key string
-}
-
-func (sr *stringRedisKey) TopicKey() string {
-	return keyString("topics:", sr.key)
-}
-func (sr *stringRedisKey) RetainKey() string {
-	return keyString("retain:", sr.key)
-}
-
-func keyString(prefix string, key string) string {
-	return prefix + key
-}
-
-type byteRedisKey struct {
-	key []byte
-}
-
-func (sr *byteRedisKey) TopicKey() string {
-	return keyByte("topics:", sr.key)
-}
-func (sr *byteRedisKey) RetainKey() string {
-	return keyByte("retain:", sr.key)
-}
-
-func keyByte(prefix string, key []byte) string {
-	return prefix + *(*string)(unsafe.Pointer(&key))
+func appendString(prefix string, key interface{}) (string, error) {
+	keyV := reflect.ValueOf(key)
+	switch keyV.Kind() {
+	case reflect.String:
+		return prefix + keyV.String(), nil
+	case reflect.Slice:
+		byteStr := key.([]byte)
+		return prefix + *(*string)(unsafe.Pointer(&byteStr)), nil
+	default:
+		return "", errors.New("appString only accept string or []byte ")
+	}
 }
 
 func (rt *redisTopics) Retain(msg *packets.PublishPacket) error {
-	topicKey := stringRedisKey{key: msg.TopicName}
-	retainTopic := topicKey.RetainKey()
+	retainTopic, err := RetainKey(msg.TopicName)
+	if err != nil {
+		return err
+	}
 	log.Debug("retain key", zap.String("key", retainTopic))
 	// TODO change msg.String to json data
 	return client.Set(retainTopic, msg.String(), 100*time.Second).Err()
 }
 func (rt *redisTopics) Retained(topic []byte, msgs *[]*packets.PublishPacket) error {
-	topicKey := byteRedisKey{key: topic}
-	retainTopic := topicKey.RetainKey()
+	retainTopic, err := RetainKey(topic)
+	if err != nil {
+		return err
+	}
 	log.Debug("retain key", zap.String("key", retainTopic))
 	msgVal, err := client.Get(retainTopic).Result()
 	if err != nil && err != redis.Nil {

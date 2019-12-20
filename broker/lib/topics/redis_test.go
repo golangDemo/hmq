@@ -11,8 +11,10 @@ func TestExampleClient(t *testing.T) {
 }
 
 func TestTopicKey(t *testing.T) {
-	topicKey := byteRedisKey{key: []byte("test")}
-	tk := topicKey.TopicKey()
+	tk, err := TopicKey([]byte("test"))
+	if err != nil {
+		t.Errorf("topic key caculate error")
+	}
 	expectedKey := "topics:test"
 	if tk != expectedKey {
 		t.Errorf("redis topic should be %s, but %s \n", expectedKey, tk)
