@@ -2,7 +2,6 @@ package topics
 
 import (
 	"fmt"
-
 	"github.com/eclipse/paho.mqtt.golang/packets"
 )
 

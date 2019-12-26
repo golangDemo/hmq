@@ -1,10 +1,12 @@
 package topics
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/eclipse/paho.mqtt.golang/packets"
 	"github.com/fhmq/hmq/logger"
 	"go.uber.org/zap"
+	"io/ioutil"
 	"reflect"
 	"time"
 	"unsafe"
@@ -15,18 +17,52 @@ import (
 var (
 	client *redis.Client
 	log    = logger.Get().Named("topics")
+	rc     RedisConfig
 )
 
-func init() {
-	Register("redis", NewMemProvider())
-	InitRedis()
+type RedisConfig struct {
+	Addr     string `json:"addr"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
 }
 
-func InitRedis() {
+func init() {
+	Register("redis", NewRedisProvider())
+	rc, err := LoadConfig("../../../conf/redis.config")
+	if err != nil {
+		log.Debug("load redis config error")
+	}
+	InitRedis(rc)
+}
+
+func NewRedisProvider() *redisTopics {
+	return &redisTopics{}
+}
+
+func LoadConfig(filename string) (*RedisConfig, error) {
+
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		// log.Error("Read config file error: ", zap.Error(err))
+		return nil, err
+	}
+	// log.Info(string(content))
+
+	var config RedisConfig
+	err = json.Unmarshal(content, &config)
+	if err != nil {
+		// log.Error("Unmarshal config file error: ", zap.Error(err))
+		return nil, err
+	}
+
+	return &config, nil
+}
+
+func InitRedis(rc *RedisConfig) {
 	client = redis.NewClient(&redis.Options{
-		Addr:     "192.168.18.136:6379",
-		Password: "123456", // no password set
-		DB:       0,        // use default DB
+		Addr:     rc.Addr,
+		Password: rc.Password, // no password set
+		DB:       rc.DB,       // use default DB
 
 	})
 

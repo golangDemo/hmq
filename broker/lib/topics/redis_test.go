@@ -5,8 +5,10 @@ import (
 	"testing"
 )
 
+var rConfig, _ = LoadConfig("../../../conf/redis.config")
+
 func TestExampleClient(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	t.Logf("LOG: example is ok")
 }
 
@@ -23,7 +25,7 @@ func TestTopicKey(t *testing.T) {
 }
 
 func TestRedisTopics_Subscribe(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	rt := new(redisTopics)
 	qos, subOk := rt.Subscribe([]byte("test"), byte(1), "zhangchao")
 	if subOk != nil {
@@ -33,7 +35,7 @@ func TestRedisTopics_Subscribe(t *testing.T) {
 }
 
 func TestRedisTopics_Unsubscribe(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	rt := new(redisTopics)
 	unSubOK := rt.Unsubscribe([]byte("test"), "zhangchao")
 	if unSubOK != nil {
@@ -43,7 +45,7 @@ func TestRedisTopics_Unsubscribe(t *testing.T) {
 }
 
 func TestRedisTopics_Subscribers(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	var subs []interface{}
 	var qoss []byte
 	rt := new(redisTopics)
@@ -58,7 +60,7 @@ func TestRedisTopics_Subscribers(t *testing.T) {
 }
 
 func TestRedisTopics_Retain(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	payload := []byte("test payload")
 	msg := packets.PublishPacket{TopicName: "retain/test", Payload: payload}
 	rt := new(redisTopics)
@@ -70,7 +72,7 @@ func TestRedisTopics_Retain(t *testing.T) {
 }
 
 func TestRedisTopics_Retained(t *testing.T) {
-	InitRedis()
+	InitRedis(rConfig)
 	rt := new(redisTopics)
 	topicName := []byte("retain/test")
 	var msgS []*packets.PublishPacket
