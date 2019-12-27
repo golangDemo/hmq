@@ -28,7 +28,7 @@ type RedisConfig struct {
 
 func init() {
 	Register("redis", NewRedisProvider())
-	rc, err := LoadConfig("../../../conf/redis.config")
+	rc, err := LoadConfig("conf/redis.config")
 	if err != nil {
 		log.Debug("load redis config error")
 	}

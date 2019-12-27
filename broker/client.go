@@ -302,28 +302,39 @@ func (c *client) ProcessPublishMessage(packet *packets.PublishPacket) {
 		return
 	}
 
-	var qsub []int
-	for i, sub := range c.subs {
-		s, ok := sub.(*subscription)
+	var qsub []*subscription
+	for _, sub := range c.subs {
+		s, ok := sub.(string)
 		if ok {
-			if s.client.typ == ROUTER {
-				if typ != CLIENT {
-					continue
+			subscriber, exist := b.clients.Load(s)
+			if exist {
+				log.Warn("client exist ", zap.String("clientID", c.info.clientID))
+				subscriberClient, ok := subscriber.(*client)
+				if ok {
+					err := subscriberClient.WriterPacket(packet)
+					if err != nil {
+						log.Error("write message error,  ", zap.Error(err))
+					}
+					if subscriberClient.typ == ROUTER {
+						if typ != CLIENT {
+							continue
+						}
+					}
+					subscription := subscriberClient.subMap[packet.TopicName]
+					if subscription.share {
+						qsub = append(qsub, subscription)
+					} else {
+						publish(subscription, packet)
+					}
 				}
 			}
-			if s.share {
-				qsub = append(qsub, i)
-			} else {
-				publish(s, packet)
-			}
-
 		}
 
 	}
 
 	if len(qsub) > 0 {
 		idx := r.Intn(len(qsub))
-		sub := c.subs[qsub[idx]].(*subscription)
+		sub := qsub[idx]
 		publish(sub, packet)
 	}
 
@@ -385,7 +396,7 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 		}
 
 		if oldSub, exist := c.subMap[t]; exist {
-			c.topicsMgr.Unsubscribe([]byte(oldSub.topic), oldSub)
+			c.topicsMgr.Unsubscribe([]byte(oldSub.topic), c.info.clientID)
 			delete(c.subMap, t)
 		}
 
@@ -397,7 +408,7 @@ func (c *client) processClientSubscribe(packet *packets.SubscribePacket) {
 			groupName: groupName,
 		}
 
-		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], sub)
+		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], c.info.clientID)
 		if err != nil {
 			log.Error("subscribe error, ", zap.Error(err), zap.String("ClientID", c.info.clientID))
 			retcodes = append(retcodes, QosFailure)
@@ -471,7 +482,7 @@ func (c *client) processRouterSubscribe(packet *packets.SubscribePacket) {
 			groupName: groupName,
 		}
 
-		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], sub)
+		rqos, err := c.topicsMgr.Subscribe([]byte(topic), qoss[i], c.info.clientID)
 		if err != nil {
 			log.Error("subscribe error, ", zap.Error(err), zap.String("ClientID", c.info.clientID))
 			retcodes = append(retcodes, QosFailure)
@@ -519,7 +530,7 @@ func (c *client) processRouterUnSubscribe(packet *packets.UnsubscribePacket) {
 				continue
 			}
 
-			c.topicsMgr.Unsubscribe([]byte(sub.topic), sub)
+			c.topicsMgr.Unsubscribe([]byte(sub.topic), c.info.clientID)
 			delete(c.subMap, topic)
 		}
 
@@ -561,7 +572,7 @@ func (c *client) processClientUnSubscribe(packet *packets.UnsubscribePacket) {
 
 		sub, exist := c.subMap[topic]
 		if exist {
-			c.topicsMgr.Unsubscribe([]byte(sub.topic), sub)
+			c.topicsMgr.Unsubscribe([]byte(sub.topic), c.info.clientID)
 			c.session.RemoveTopic(topic)
 			delete(c.subMap, topic)
 		}
@@ -622,7 +633,7 @@ func (c *client) Close() {
 	if b != nil {
 		b.removeClient(c)
 		for _, sub := range subs {
-			err := b.topicsMgr.Unsubscribe([]byte(sub.topic), sub)
+			err := b.topicsMgr.Unsubscribe([]byte(sub.topic), c.info.clientID)
 			if err != nil {
 				log.Error("unsubscribe error, ", zap.Error(err), zap.String("ClientID", c.info.clientID))
 			}

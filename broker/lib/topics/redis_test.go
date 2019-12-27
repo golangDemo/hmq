@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var rConfig, _ = LoadConfig("../../../conf/redis.config")
+var rConfig, _ = LoadConfig("conf/redis.config")
 
 func TestExampleClient(t *testing.T) {
 	InitRedis(rConfig)

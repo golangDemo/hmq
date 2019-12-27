@@ -609,11 +609,18 @@ func (b *Broker) PublishMessage(packet *packets.PublishPacket) {
 	}
 
 	for _, sub := range subs {
-		s, ok := sub.(*subscription)
+		s, ok := sub.(string)
 		if ok {
-			err := s.client.WriterPacket(packet)
-			if err != nil {
-				log.Error("write message error,  ", zap.Error(err))
+			subscriber, exist := b.clients.Load(s)
+			if exist {
+				log.Warn("pub message to ", zap.String("clientID", s))
+				subscriberClient, ok := subscriber.(*client)
+				if ok {
+					err := subscriberClient.WriterPacket(packet)
+					if err != nil {
+						log.Error("write message error,  ", zap.Error(err))
+					}
+				}
 			}
 		}
 	}
